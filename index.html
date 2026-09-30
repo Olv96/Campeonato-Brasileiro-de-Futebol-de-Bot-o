@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Futebol de Botão 3D Multiplayer</title>
+  <meta name="description" content="Jogo de futebol de botão em 3D por turnos, multiplayer em tempo real com física realista e mira com estilingue!">
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- CDNs para Bibliotecas -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Import Map para Three.js e Cannon-es -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- Canvas 3D do Jogo -->
+  <div id="game-container">
+    <canvas id="webgl-canvas"></canvas>
+  </div>
+
+  <!-- HUD Principal do Jogo (Placar, Tempo, Turno, Controles de Câmera) -->
+  <header id="game-hud" class="hud-layer hidden">
+    <!-- Placar e Informações do Jogo -->
+    <div class="scoreboard-container glass-panel">
+      <!-- Time 1 (Mandante / Vermelho por padrão) -->
+      <div class="team-card team-home">
+        <div class="team-badge" id="hud-badge-home" style="background-color: #e63946;">FLA</div>
+        <div class="team-details">
+          <span class="team-name" id="hud-name-home">Flamengo</span>
+          <span class="player-name" id="hud-player-home">Bruno</span>
+        </div>
+        <div class="score-digit" id="hud-score-home">0</div>
+      </div>
+
+      <!-- Relógio e Status -->
+      <div class="match-info">
+        <div class="match-time" id="hud-match-timer">03:00</div>
+        <div class="turn-indicator" id="hud-turn-badge">
+          <span class="pulse-dot"></span>
+          <span id="hud-turn-text">Turno de FLA</span>
+        </div>
+      </div>
+
+      <!-- Time 2 (Visitante / Azul por padrão) -->
+      <div class="team-card team-away">
+        <div class="score-digit" id="hud-score-away">0</div>
+        <div class="team-details text-right">
+          <span class="team-name" id="hud-name-away">Vasco</span>
+          <span class="player-name" id="hud-player-away">Adversário</span>
+        </div>
+        <div class="team-badge" id="hud-badge-away" style="background-color: #1d3557;">VAS</div>
+      </div>
+    </div>
+
+    <!-- Barra de Ações Rápidas do Topo -->
+    <div class="hud-actions">
+      <button id="btn-cam-toggle" class="icon-btn" title="Alternar Câmera (Isométrica / Top-Down)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </button>
+      <button id="btn-sound-toggle" class="icon-btn" title="Ligar/Desligar Som">
+        <svg id="icon-sound-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+      </button>
+      <button id="btn-menu-exit" class="icon-btn danger" title="Sair para o Menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Indicador de Mira e Força (Overlay SVG / Canvas) -->
+  <div id="aim-indicator" class="aim-overlay pointer-events-none hidden">
+    <div class="power-bar-wrapper">
+      <div class="power-bar-label">FORÇA: <span id="power-percent">0%</span></div>
+      <div class="power-bar-track">
+        <div id="power-bar-fill" class="power-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Banner de Comemoração de GOL -->
+  <div id="goal-banner" class="goal-banner-overlay hidden">
+    <div class="goal-content animate-goal">
+      <h1 class="goal-title">GOOOOOOOL!</h1>
+      <p class="goal-team-name" id="goal-scorer-team">FLAMENGO</p>
+      <div class="goal-stars">⚽ ⭐ ⚽ ⭐ ⚽</div>
+    </div>
+  </div>
+
+  <!-- Banner de Fim de Jogo -->
+  <div id="endgame-modal" class="modal-overlay hidden">
+    <div class="modal-card endgame-card">
+      <div class="trophy-icon">🏆</div>
+      <h2 id="endgame-title">FIM DE PARTIDA!</h2>
+      <div class="endgame-score">
+        <span id="endgame-home-info">FLA 2</span>
+        <span class="vs-badge">x</span>
+        <span id="endgame-away-info">1 VAS</span>
+      </div>
+      <p id="endgame-message" class="endgame-msg">Flamengo venceu o confronto!</p>
+      <div class="modal-buttons">
+        <button id="btn-rematch" class="btn primary-btn">Jogar Novamente</button>
+        <button id="btn-endgame-menu" class="btn secondary-btn">Voltar ao Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Interno Flutuante -->
+  <div id="chat-widget" class="chat-widget hidden">
+    <button id="chat-toggle-btn" class="chat-pill-btn">
+      <span class="chat-icon">💬</span>
+      <span class="chat-label">Chat</span>
+      <span id="chat-unread-badge" class="badge-dot hidden"></span>
+    </button>
+    
+    <div id="chat-panel" class="chat-panel glass-panel hidden">
+      <div class="chat-header">
+        <span class="chat-title">Chat da Partida</span>
+        <button id="chat-close-btn" class="chat-close-btn">&times;</button>
+      </div>
+      <div id="chat-messages" class="chat-messages-container">
+        <div class="chat-msg system-msg">
+          <span class="msg-text">Bem-vindo ao Futebol de Botão 3D! Respeite o adversário e bom jogo.</span>
+        </div>
+      </div>
+      <!-- Reações Rápidas -->
+      <div class="quick-emojis">
+        <button class="emoji-btn" data-emoji="⚽">⚽</button>
+        <button class="emoji-btn" data-emoji="🎯">🎯</button>
+        <button class="emoji-btn" data-emoji="🔥">🔥</button>
+        <button class="emoji-btn" data-emoji="👏">👏</button>
+        <button class="emoji-btn" data-emoji="😱">😱</button>
+        <button class="emoji-btn" data-emoji="🏆">🏆</button>
+      </div>
+      <form id="chat-form" class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Digite uma mensagem..." maxlength="80" autocomplete="off">
+        <button type="submit" id="chat-send-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MENU INICIAL / CONFIGURAÇÃO DO JOGADOR E MULTIPLAYER -->
+  <div id="main-menu" class="menu-overlay">
+    <div class="menu-card glass-panel">
+      <!-- Cabeçalho / Título do Jogo -->
+      <div class="game-header-logo">
+        <div class="logo-ball">⚽</div>
+        <h1 class="game-title">FUTEBOL DE BOTÃO <span>3D</span></h1>
+        <p class="game-subtitle">Mesa Clássica &bull; Mira com Trajetória &bull; Multiplayer Realtime</p>
+      </div>
+
+      <!-- Abas de Navegação do Menu -->
+      <div class="menu-tabs">
+        <button class="tab-btn active" data-tab="tab-custom">1. Meu Time</button>
+        <button class="tab-btn" data-tab="tab-play">2. Jogar</button>
+        <button class="tab-btn" data-tab="tab-supabase">3. Supabase Cloud</button>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 1: Customização do Jogador e Botão -->
+      <div id="tab-custom" class="tab-content active">
+        <div class="custom-grid">
+          <div class="form-side">
+            <!-- Nome do Jogador -->
+            <div class="input-group">
+              <label for="input-player-name">Seu Nome / Apelido:</label>
+              <input type="text" id="input-player-name" maxlength="15" value="Craque 10" placeholder="Ex: Pelé">
+            </div>
+
+            <!-- Nome do Time -->
+            <div class="input-group">
+              <label for="input-team-name">Nome do seu Time:</label>
+              <input type="text" id="input-team-name" maxlength="20" value="Brasil FC" placeholder="Ex: Real Madrid, Flamengo">
+            </div>
+
+            <!-- Abreviação (3 Letras) -->
+            <div class="input-group">
+              <label for="input-team-abbr">Abreviação (Exatamente 3 letras):</label>
+              <div class="abbr-input-wrapper">
+                <input type="text" id="input-team-abbr" maxlength="3" value="BRA" placeholder="BRA" style="text-transform: uppercase;">
+                <span class="abbr-hint">Aparece gravado no botão</span>
+              </div>
+            </div>
+
+            <!-- Cor do Botão -->
+            <div class="input-group">
+              <label>Cor do Botão:</label>
+              <div class="color-picker-row">
+                <input type="color" id="input-team-color" value="#0055ff">
+                <div class="preset-colors">
+                  <button type="button" class="preset-dot" style="background:#e63946" data-color="#e63946" title="Vermelho"></button>
+                  <button type="button" class="preset-dot" style="background:#1d3557" data-color="#1d3557" title="Azul Marinho"></button>
+                  <button type="button" class="preset-dot" style="background:#2a9d8f" data-color="#2a9d8f" title="Verde Esmeralda"></button>
+                  <button type="button" class="preset-dot" style="background:#f4a261" data-color="#f4a261" title="Laranja"></button>
+                  <button type="button" class="preset-dot" style="background:#ffb703" data-color="#ffb703" title="Amarelo Canário"></button>
+                  <button type="button" class="preset-dot" style="background:#9d4edd" data-color="#9d4edd" title="Roxo"></button>
+                  <button type="button" class="preset-dot" style="background:#111111" data-color="#111111" title="Preto"></button>
+                  <button type="button" class="preset-dot" style="background:#ffffff; border:1px solid #777;" data-color="#ffffff" title="Branco"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preview 3D do Botão -->
+          <div class="preview-side">
+            <span class="preview-label">Visualização do Botão</span>
+            <div class="button-preview-card">
+              <div id="preview-disk" class="preview-disk" style="background: radial-gradient(circle at 35% 35%, #5599ff, #0055ff, #002b80);">
+                <div class="inner-ring">
+                  <span id="preview-text" class="preview-abbr">BRA</span>
+                </div>
+              </div>
+              <div class="preview-shadow"></div>
+            </div>
+            <p class="preview-desc">Textura acrílica brilhante com gravação em relevo</p>
+          </div>
+        </div>
+
+        <div class="tab-footer">
+          <button id="btn-next-to-play" class="btn primary-btn full-width">Avançar para Modos de Jogo &rarr;</button>
+        </div>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 2: Seleção de Modo de Jogo & Multiplayer -->
+      <div id="tab-play" class="tab-content">
+        <!-- Escolha do Formato: 4x4 ou 5x5 -->
+        <div class="format-selection-box">
+          <span class="section-title">Escolha a Formação:</span>
+          <div class="format-radios">
+            <label class="format-card active">
+              <input type="radio" name="game-format" value="4" checked>
+              <div class="format-details">
+                <strong>4 x 4</strong>
+                <span>1 Goleiro + 3 Linha (Mais Espaço)</span>
+              </div>
+            </label>
+            <label class="format-card">
+              <input type="radio" name="game-format" value="5">
+              <div class="format-details">
+                <strong>5 x 5</strong>
+                <span>1 Goleiro + 4 Linha (Clássico Dinâmico)</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="game-modes-grid">
+          <!-- Modo 1: Multiplayer Online (Supabase Realtime) -->
+          <div class="mode-box online-box">
+            <div class="mode-header">
+              <span class="mode-badge online-badge">MULTI-ONLINE</span>
+              <h3>Partida Online</h3>
+              <p>Jogue com um amigo em tempo real à distância.</p>
+            </div>
+
+            <!-- Criar Sala -->
+            <div class="room-action-block">
+              <button id="btn-create-room" class="btn primary-btn full-width">
+                <span>Criar Nova Sala</span>
+              </button>
+            </div>
+
+            <div class="or-separator"><span>OU ENTRAR EM SALA</span></div>
+
+            <!-- Entrar com Código -->
+            <div class="join-room-row">
+              <input type="text" id="input-room-code" placeholder="Código (Ex: 7429)" maxlength="6" style="text-transform: uppercase;">
+              <button id="btn-join-room" class="btn secondary-btn">Entrar</button>
+            </div>
+            <div id="room-status-msg" class="room-status-msg"></div>
+          </div>
+
+          <!-- Modo 2: Local 2 Jogadores (Pass & Play) -->
+          <div class="mode-box local-box">
+            <div class="mode-header">
+              <span class="mode-badge local-badge">LOCAL 1v1</span>
+              <h3>No Mesmo Teclado/Mouse</h3>
+              <p>Partida alternada no mesmo computador ou celular.</p>
+            </div>
+            <button id="btn-play-local" class="btn success-btn full-width">
+              <span>Iniciar 1x1 Local</span>
+            </button>
+          </div>
+
+          <!-- Modo 3: Treino contra a Inteligência Artificial -->
+          <div class="mode-box bot-box">
+            <div class="mode-header">
+              <span class="mode-badge bot-badge">TREINO VS BOT</span>
+              <h3>Treinar Sozinho</h3>
+              <p>Pratique sua mira e força contra o robô.</p>
+            </div>
+            <button id="btn-play-bot" class="btn accent-btn full-width">
+              <span>Praticar com Robô</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 3: Configuração do Supabase (Opcional & Persistente) -->
+      <div id="tab-supabase" class="tab-content">
+        <div class="supabase-guide">
+          <h3>Como Funciona o Multiplayer Online</h3>
+          <p>Utilizamos os <strong>Canais de Broadcast em Tempo Real do Supabase</strong>. Funciona diretamente do navegador sem necessidade de backend dedicado!</p>
+          
+          <div class="input-group">
+            <label for="input-sb-url">Supabase Project URL:</label>
+            <input type="text" id="input-sb-url" placeholder="https://seu-projeto.supabase.co">
+          </div>
+
+          <div class="input-group">
+            <label for="input-sb-key">Supabase Anon Key:</label>
+            <input type="text" id="input-sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+          </div>
+
+          <div class="sb-actions">
+            <button id="btn-save-supabase" class="btn primary-btn">Salvar Credenciais</button>
+            <button id="btn-test-supabase" class="btn secondary-btn">Testar Conexão</button>
+          </div>
+          <p id="sb-status" class="sb-status"></p>
+
+          <div class="guide-box">
+            <h4>💡 Dica Rápida para o GitHub Pages:</h4>
+            <ol>
+              <li>Crie um projeto grátis no <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+              <li>Vá em <strong>Project Settings &rarr; API</strong> e copie a <code>URL</code> e a chave <code>anon public</code>.</li>
+              <li>Cole nos campos acima. Ficará salvo no seu navegador e conectará instantaneamente!</li>
+              <li>Se você não configurar o Supabase agora, pode se divertir normalmente com os modos <strong>1x1 Local</strong> e <strong>Treino VS Bot</strong>!</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Sala de Espera / Lobby Online -->
+  <div id="lobby-modal" class="modal-overlay hidden">
+    <div class="modal-card lobby-card">
+      <div class="lobby-header">
+        <h2>Sala de Partida Online</h2>
+        <div class="room-code-display">
+          <span>CÓDIGO DA SALA:</span>
+          <strong id="lobby-room-code">----</strong>
+          <button id="btn-copy-room" class="btn-mini" title="Copiar Código">Copiar</button>
+        </div>
+        <p class="lobby-sub">Compartilhe este código com seu amigo para ele entrar!</p>
+      </div>
+
+      <div class="lobby-players-grid">
+        <div class="player-slot slot-ready" id="slot-host">
+          <div class="slot-avatar" id="slot-host-avatar" style="background:#0055ff">BRA</div>
+          <div class="slot-info">
+            <span class="slot-role">Criador da Sala</span>
+            <strong id="slot-host-name">Craque 10</strong>
+            <small id="slot-host-team">Brasil FC</small>
+          </div>
+          <span class="slot-status">Pronto</span>
+        </div>
+
+        <div class="player-slot" id="slot-guest">
+          <div class="slot-avatar waiting-avatar" id="slot-guest-avatar">?</div>
+          <div class="slot-info">
+            <span class="slot-role">Adversário</span>
+            <strong id="slot-guest-name">Aguardando...</strong>
+            <small id="slot-guest-team">Convidado</small>
+          </div>
+          <span class="slot-status waiting-status" id="slot-guest-status">Esperando...</span>
+        </div>
+      </div>
+
+      <div class="lobby-settings-summary">
+        <span>Formação: <strong id="lobby-formation-text">4 x 4</strong></span>
+        <span>Duração: <strong>3 Minutos</strong></span>
+      </div>
+
+      <div class="modal-buttons">
+        <button id="btn-start-online-match" class="btn primary-btn" disabled>Aguardando Adversário...</button>
+        <button id="btn-leave-lobby" class="btn danger-btn">Sair da Sala</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts do Jogo como ES Modules -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
